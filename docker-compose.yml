@@ -17,7 +17,9 @@
 version: '3.7'
 
 volumes:
-  db_data:
+  external:
+    foggy_db_data
+    foggy_app_data
 
 x-shared_environment: &shared_environment
   LOG_LEVEL: ${LOG_LEVEL:-debug}
