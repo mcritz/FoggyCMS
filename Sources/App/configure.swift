@@ -10,4 +10,20 @@ public func configure(_ app: Application) throws {
 
     // register routes
     try routes(app)
+    
+    #if DEBUG
+    app.databases.use(.postgres(hostname: "localhost", username: "mcritz", password: "vapor"), as: .psql)
+    #else
+    fatalError("Production DB not configured!")
+    #endif
+    
+    app.migrations.add(CreateTodo())
+    app.migrations.add(CreateTextBundle())
+    
+    #if DEBUG
+    print("migating dev db")
+    try app.autoMigrate().wait()
+    #else
+    fatalError("Did not migrate db")
+    #endif
 }

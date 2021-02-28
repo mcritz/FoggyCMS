@@ -12,6 +12,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/fluent.git", .upToNextMajor(from: "4.0.0")),
         .package(url: "https://github.com/vapor/fluent-postgres-driver.git", .upToNextMajor(from: "2.0.0")),
         .package(url: "https://github.com/vapor/leaf.git", .upToNextMajor(from: "4.0.0")),
+        .package(url: "https://github.com/mcritz/TextBundle.git", .upToNextMajor(from: "1.0.0")),
     ],
     targets: [
         .target(
@@ -21,6 +22,7 @@ let package = Package(
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentPostgresDriver", package: "fluent-postgres-driver"),
                 .product(name: "Leaf", package: "leaf"),
+                .product(name: "TextBundle", package: "TextBundle"),
             ],
             swiftSettings: [
                 // Enable better optimizations when building in Release configuration. Despite the use of
