@@ -123,54 +123,42 @@ struct TextBundleController: RouteCollection {
                     do {
                         drainPromise.fail(errz)
                         // Handle errors by closing and removing our file
-                        try? fHand.close()
+                        try fHand.close()
                         try FileManager.default.removeItem(atPath: tempFilePath)
                     } catch {
+                        logger.error("")
                         debugPrint("catastrophic failure on \(errz)", error)
                     }
                     // Inform the client
                     statusPromise.succeed(.internalServerError)
                     
                 case .end:
+                    do {
+                        logger.debug(Logger.Message(stringLiteral: "tempFilePath: \(tempFilePath)"))
+                        _ = try extractTextBundle(tempFilePath, db: req.db).flatMapThrowing { _ in
+                            try? fHand.close()
+                            statusPromise.succeed(.ok)
+                        }
+                    } catch {
+                        try? fHand.close()
+                        statusPromise.fail(error)
+                    }
                     drainPromise.succeed(())
-                    try? fHand.close()
-                    logger.debug(Logger.Message(stringLiteral: "tempFilePath: \(tempFilePath)"))
-                    // TODO: Uploads
-                    statusPromise.succeed(.ok)
-//                    _ = upload
-//                        .save(on: req.db)
-//                        .map { _ in
-//                        statusPromise.succeed(.ok)
-//                    }
                 }
                 return drainPromise.futureResult
             }
         }.transform(to: statusPromise.futureResult)
     }
+    
+    func extractTextBundle(_ path: String, db: Database) throws -> EventLoopFuture<Void> {
+        guard let bundleURL = URL(string: path) else {
+            throw Abort(.internalServerError, reason: "Could not extract TextBundle.")
+        }
+        
+        let diskTextBundle = try TextBundle.read(bundleURL)
+        
+        return TextBundleModel(with: diskTextBundle).save(on: db)
+    }
 
     
-//    func upload(req: Request) throws -> EventLoopFuture<String> {
-//        let resultPromise = req.eventLoop.makePromise(of: String.self)
-//
-//        let fileHandle = req.application
-//            .fileio
-//            .openFile(path: UUID().uuidString.appending(".textpack"),
-//                      eventLoop: req.eventLoop)
-//        return fileHandle.map { fhand, kCFBundle in
-//                req.body.drain { streamResult in
-//                    switch streamResult {
-//                    case .buffer(let buffy):
-//                        logger.debug(Logger.Message(stringLiteral: buffy.debugDescription))
-//                    case .error(let error):
-//                        logger.error(Logger.Message(stringLiteral: error.localizedDescription))
-//                        resultPromise.fail(error.localizedDescription)
-//                    case .end:
-//                        logger.info("Done")
-//                        resultPromise.succeed("Done")
-//                    }
-//                    return resultPromise.futureResult()
-//                }
-//        }
-//        .transform(to: resultPromise.futureResult)
-//    }
 }

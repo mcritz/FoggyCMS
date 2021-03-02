@@ -20,3 +20,12 @@ final class TextBundleModel: Model, Content {
 //    @Field(key: "meta")
 //    var meta: TextBundle.Metadata
 }
+
+extension TextBundleModel {
+    convenience init(with bundle: TextBundle) {
+        self.init()
+        self.name = bundle.name
+        self.textContents = bundle.textContents
+        self.assetURLs = bundle.assetURLs
+    }
+}
