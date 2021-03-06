@@ -19,6 +19,7 @@ public func configure(_ app: Application) throws {
     
     app.migrations.add(CreateTodo())
     app.migrations.add(CreateTextBundle())
+    app.migrations.add(CreateAsset())
     
     #if DEBUG
     print("migating dev db")

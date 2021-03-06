@@ -135,7 +135,7 @@ struct TextBundleController: RouteCollection {
                 case .end:
                     do {
                         logger.debug(Logger.Message(stringLiteral: "tempFilePath: \(tempFilePath)"))
-                        _ = try extractTextBundle(tempFilePath, db: req.db).flatMapThrowing { _ in
+                        _ = try extractTextBundle(tempFilePath, req: req).flatMapThrowing { _ in
                             try? fHand.close()
                             statusPromise.succeed(.ok)
                         }
@@ -150,14 +150,15 @@ struct TextBundleController: RouteCollection {
         }.transform(to: statusPromise.futureResult)
     }
     
-    func extractTextBundle(_ path: String, db: Database) throws -> EventLoopFuture<Void> {
+    func extractTextBundle(_ path: String, req: Request) throws -> EventLoopFuture<Void> {
         guard let bundleURL = URL(string: path) else {
             throw Abort(.internalServerError, reason: "Could not extract TextBundle.")
         }
         
         let diskTextBundle = try TextBundle.read(bundleURL)
-        
-        return TextBundleModel(with: diskTextBundle).save(on: db)
+        try diskTextBundle.saveAssets(on: req)
+        return TextBundleModel(with: diskTextBundle)
+            .save(on: req.db)
     }
 
     

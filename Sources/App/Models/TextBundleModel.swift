@@ -29,3 +29,12 @@ extension TextBundleModel {
         self.assetURLs = bundle.assetURLs
     }
 }
+
+extension TextBundleModel {
+    func saveAssets(on req: Request) throws {
+        guard let assetURLs = assetURLs else { return }
+        _ = try assetURLs.map { url in
+            try Asset(url).save(on: req.db)
+        }
+    }
+}
