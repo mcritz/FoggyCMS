@@ -15,7 +15,6 @@ struct TextBundleController: RouteCollection {
         }
         
         texts.on(.POST, "upload", body: .stream, use: upload)
-        //post("upload", use: upload)
     }
     
     func index(req: Request) throws -> EventLoopFuture<[TextBundleModel]> {
@@ -51,6 +50,24 @@ struct TextBundleController: RouteCollection {
         let fileExt = fileExtension(for: headers)
         return "upload-\(UUID().uuidString).\(fileExt)"
     }
+    
+    private func getExtension(_ req: Request) throws -> String {
+        let contentType = req.headers["Content-Type"].first
+        switch contentType {
+        case "textbundle":
+            logger.debug("uploading textbundle")
+            return ".textbundle"
+        case "textpack":
+            logger.debug("uploading textpack")
+            return ".textpack"
+        case "application/octet-stream":
+            logger.debug("random bits")
+            return ".bin"
+        default:
+            logger.critical("invalid mediaType")
+            throw Abort(.badRequest)
+        }
+    }
 
 
     /// Parse the header’s Content-Type to determine the file extension
@@ -78,11 +95,12 @@ struct TextBundleController: RouteCollection {
     func upload(req: Request) throws -> EventLoopFuture<HTTPStatus> {
         let logger = Logger(label: "TextBundle.upload")
         let statusPromise = req.eventLoop.makePromise(of: HTTPStatus.self)
+        let ext = try getExtension(req)
         
         let tempFilePath = FileManager.default.temporaryDirectory
             .path
             .appending(UUID().uuidString)
-            .appending(".textpack")
+            .appending(ext)
         
         logger.debug(Logger.Message(stringLiteral: "Handling: \(tempFilePath)"))
         
@@ -125,13 +143,13 @@ struct TextBundleController: RouteCollection {
                         // Handle errors by closing and removing our file
                         try fHand.close()
                         try FileManager.default.removeItem(atPath: tempFilePath)
+                        logger.info("Uploaded \(tempFilePath)")
                     } catch {
-                        logger.error("")
+                        logger.error("Failed to upload. \(tempFilePath) \n Reason: \n \(errz.localizedDescription)")
                         debugPrint("catastrophic failure on \(errz)", error)
                     }
                     // Inform the client
-                    statusPromise.succeed(.internalServerError)
-                    
+                    statusPromise.fail(Abort(.internalServerError))
                 case .end:
                     do {
                         logger.debug(Logger.Message(stringLiteral: "tempFilePath: \(tempFilePath)"))
