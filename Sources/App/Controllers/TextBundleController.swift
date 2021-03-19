@@ -4,6 +4,8 @@ import Vapor
 
 struct TextBundleController: RouteCollection {
     
+    typealias FilePath = String
+    
     let logger = Logger(label: "TextBundleController")
     
     func boot(routes: RoutesBuilder) throws {
@@ -38,19 +40,10 @@ struct TextBundleController: RouteCollection {
            }
     }
     
-    /// Intended entry point for naming files
-    /// - Parameter headers: Source `HTTPHeaders`
-    /// - Returns: `String` with best guess file name.
-    private func filename(with headers: HTTPHeaders) -> String {
-        let fileNameHeader = headers["File-Name"]
-        if let inferredName = fileNameHeader.first {
-            return inferredName
-        }
-        
-        let fileExt = fileExtension(for: headers)
-        return "upload-\(UUID().uuidString).\(fileExt)"
-    }
-    
+    /// Reads a `Request`’s Content-Type and returns a suitable extension
+    /// - Parameter req: `Request` with Content-Type Header
+    /// - Throws: if the Content-Type doesn’t match an expected type
+    /// - Returns: `String` for a file extension
     private func getExtension(_ req: Request) throws -> String {
         let contentType = req.headers["Content-Type"].first
         switch contentType {
@@ -68,8 +61,7 @@ struct TextBundleController: RouteCollection {
             throw Abort(.badRequest)
         }
     }
-
-
+    
     /// Parse the header’s Content-Type to determine the file extension
     /// - Parameter headers: source `HTTPHeaders`
     /// - Returns: `String` guess at appropriate file extension
@@ -90,17 +82,15 @@ struct TextBundleController: RouteCollection {
         return fileExtension
     }
     
-    
-    
-    func upload(req: Request) throws -> EventLoopFuture<HTTPStatus> {
-        let logger = Logger(label: "TextBundle.upload")
-        let statusPromise = req.eventLoop.makePromise(of: HTTPStatus.self)
-        let ext = try getExtension(req)
-        
+    /// Creates a temporary file, returning its path
+    /// - Parameters:
+    ///   - fileName: `String` the name of the file itself. Ex: “Foo.textpack”
+    /// - Throws: if the file creation is not successful
+    /// - Returns: `String` the
+    private func createUploadFile(_ fileName: String) throws -> FilePath {
         let tempFilePath = FileManager.default.temporaryDirectory
             .path
-            .appending(UUID().uuidString)
-            .appending(ext)
+            .appending(fileName)
         
         logger.debug(Logger.Message(stringLiteral: "Handling: \(tempFilePath)"))
         
@@ -110,10 +100,41 @@ struct TextBundleController: RouteCollection {
             logger.critical("Could not upload \(tempFilePath)")
             throw Abort(.internalServerError)
         }
+        return tempFilePath
+    }
+    
+    /// Reads a `TextBundle` at a path and saves it on the `Request`
+    /// - Parameters:
+    ///   - path: `FilePath` of the source `TextBundle`
+    ///   - req: `Request` to save results on
+    /// - Throws: if `FilePath` is invalid or save is unsucessful
+    /// - Returns: `EventLoopFuture<TextBundle>`
+    private func extractTextBundle(_ path: FilePath, req: Request) throws -> EventLoopFuture<TextBundle> {
+        guard let bundleURL = URL(string: path) else {
+            throw Abort(.internalServerError, reason: "Could not extract TextBundle.")
+        }
+        
+        let diskTextBundle = try TextBundle.read(bundleURL)
+        try diskTextBundle.saveAssets(on: req)
+        return TextBundleModel(with: diskTextBundle)
+            .save(on: req.db)
+            .transform(to: diskTextBundle)
+    }
+    
+    /// Uploads a `TextBundle`
+    /// - Parameter req: `Request` with `Content-Type` header set to `textpack` or `textbundle`
+    /// - Throws: for bad content
+    /// - Returns: `EventLoopFuture<TextBundle>`
+    func upload(req: Request) throws -> EventLoopFuture<TextBundle> {
+        let logger = Logger(label: "TextBundle.upload")
+        let resultPromise = req.eventLoop.makePromise(of: TextBundle.self)
+        let ext = try getExtension(req)
+        let fileName = UUID().uuidString.appending(ext)
         
         // Configure SwiftNIO to create a file stream.
         let nbFileIO = req.application.fileio
-        let fileHandle = nbFileIO.openFile(path: tempFilePath,
+        let filePath = try createUploadFile(fileName)
+        let fileHandle = nbFileIO.openFile(path: filePath,
                                            mode: .write,
                                            eventLoop: req.eventLoop)
         
@@ -140,44 +161,31 @@ struct TextBundleController: RouteCollection {
                 case .error(let errz):
                     do {
                         drainPromise.fail(errz)
-                        // Handle errors by closing and removing our file
                         try fHand.close()
-                        try FileManager.default.removeItem(atPath: tempFilePath)
-                        logger.info("Uploaded \(tempFilePath)")
+                        try FileManager.default.removeItem(atPath: filePath)
+                        logger.error("Failed to upload. \(filePath) \n Reason: \n \(errz.localizedDescription)")
                     } catch {
-                        logger.error("Failed to upload. \(tempFilePath) \n Reason: \n \(errz.localizedDescription)")
+                        logger.error("Failed to upload. \n Reason: \n \(error.localizedDescription) \n File \(filePath) will need to be removed manually.")
                         debugPrint("catastrophic failure on \(errz)", error)
                     }
                     // Inform the client
-                    statusPromise.fail(Abort(.internalServerError))
+                    resultPromise.fail(Abort(.internalServerError))
                 case .end:
                     do {
-                        logger.debug(Logger.Message(stringLiteral: "tempFilePath: \(tempFilePath)"))
-                        _ = try extractTextBundle(tempFilePath, req: req).flatMapThrowing { _ in
+                        logger.debug(Logger.Message(stringLiteral: "Uploaded: \(filePath)"))
+                        _ = try extractTextBundle(filePath, req: req).flatMapThrowing { bundle in
                             try? fHand.close()
-                            statusPromise.succeed(.ok)
+                            resultPromise.succeed(bundle)
                         }
                     } catch {
                         try? fHand.close()
-                        statusPromise.fail(error)
+                        resultPromise.fail(error)
                     }
                     drainPromise.succeed(())
                 }
                 return drainPromise.futureResult
             }
-        }.transform(to: statusPromise.futureResult)
+        }.transform(to: resultPromise.futureResult)
     }
-    
-    func extractTextBundle(_ path: String, req: Request) throws -> EventLoopFuture<Void> {
-        guard let bundleURL = URL(string: path) else {
-            throw Abort(.internalServerError, reason: "Could not extract TextBundle.")
-        }
-        
-        let diskTextBundle = try TextBundle.read(bundleURL)
-        try diskTextBundle.saveAssets(on: req)
-        return TextBundleModel(with: diskTextBundle)
-            .save(on: req.db)
-    }
-
     
 }

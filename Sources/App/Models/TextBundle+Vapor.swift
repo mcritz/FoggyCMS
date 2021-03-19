@@ -2,6 +2,8 @@ import Fluent
 import TextBundle
 import Vapor
 
+extension TextBundle: Content { }
+
 extension TextBundle {
     func saveAssets(on req: Request) throws {
         _ = try assetURLs.flatMap { urls in
