@@ -5,6 +5,8 @@ final class Asset: Model, Content {
     static var schema = "asset"
     init() { }
     
+    let path: String = "assets"
+    
     @ID(key: .id)
     var id: UUID?
     
@@ -22,5 +24,15 @@ final class Asset: Model, Content {
         }
         self.filename = url.lastPathComponent
         self.filepath = url.path
+    }
+}
+
+extension Asset {
+    func makeURL(_ req: Request) throws -> URL {
+        let id = try self.requireID()
+        let baseURL =  try req.baseURL()
+        let result =  baseURL.appendingPathComponent(path)
+            .appendingPathComponent(id.uuidString)
+        return result
     }
 }

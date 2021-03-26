@@ -12,4 +12,8 @@ extension TextBundle {
             }
         }
     }
+    
+    mutating func replaceAssetURLs(with newURLs: [URL]) {
+        assetURLs = newURLs
+    }
 }
