@@ -17,6 +17,7 @@ final class AssetController: RouteCollection {
         Asset.query(on: req.db).all()
     }
     
+    @available(*, deprecated, message: "This should be removed or gated by admin access to fix bad data")
     func create(req: Request) throws -> EventLoopFuture<Asset> {
         try req.content
             .decode(Asset.self)
@@ -24,6 +25,10 @@ final class AssetController: RouteCollection {
             .transform(to: Asset())
     }
     
+    /// Returns the actual file byptes from disk
+    /// - Parameter req: `Request` with `asssetID`
+    /// - Throws: if the ID is unavailable or file can’t be read
+    /// - Returns: Streaming ELF Response
     func getOne(req: Request) throws -> EventLoopFuture<Response> {
         return Asset.find(req.parameters.get("assetID"),
                        on: req.db)

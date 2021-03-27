@@ -5,7 +5,7 @@ final class Asset: Model, Content {
     static var schema = "asset"
     init() { }
     
-    let path: String = "assets"
+    public static let path: String = "assets"
     
     @ID(key: .id)
     var id: UUID?
@@ -31,7 +31,7 @@ extension Asset {
     func makeURL(_ req: Request) throws -> URL {
         let id = try self.requireID()
         let baseURL =  try req.baseURL()
-        let result =  baseURL.appendingPathComponent(path)
+        let result =  baseURL.appendingPathComponent(Asset.path)
             .appendingPathComponent(id.uuidString)
         return result
     }

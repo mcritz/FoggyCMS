@@ -195,7 +195,7 @@ struct TextBundleController: RouteCollection {
                                     throw Abort(.noContent)
                                 }
                                 // Save the Asset, returning its server URL
-                                // Example: "foo.jpb" becomes "HOSTNAME:80/assets/[UUID]"
+                                // Example: "foo.jpg" becomes "[HOSTNAME]:[PORT]/assets/[UUID]"
                                 return asset.save(on: req.db)
                                     .transform(to: asset)
                                     .flatMapThrowing { asset -> URL in
@@ -206,7 +206,7 @@ struct TextBundleController: RouteCollection {
                                 switch assetURLsResult {
                                 case .success(let serverAssetURLs):
                                     // We’ll get our serverURLs, so overwrite the inbound TextBundle
-                                    mutatedBundle.replaceAssetURLs(with: serverAssetURLs)
+                                    mutatedBundle.assetURLs = serverAssetURLs
                                     // Create a server model for our TextBundle
                                     let textBundleModel = TextBundleModel(with: mutatedBundle)
                                     // Save on the DB, returning the saved Model to the client
