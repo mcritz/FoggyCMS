@@ -8,4 +8,5 @@ func routes(_ app: Application) throws {
     app.get("healthcheck") { _ -> String in "OK" }
     try app.register(collection: TodoController())
     try app.register(collection: TextBundleController())
+    try app.register(collection: AssetController())
 }

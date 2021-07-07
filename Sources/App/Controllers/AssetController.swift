@@ -7,16 +7,36 @@ final class AssetController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let assetGroup = routes.grouped("assets")
         assetGroup.get(use: index)
+        assetGroup.post(use: create)
+        assetGroup.group(":assetID") { asset in
+            asset.get(use: getOne)
+        }
     }
     
     func index(req: Request) throws -> EventLoopFuture<[Asset]> {
         Asset.query(on: req.db).all()
     }
     
+    @available(*, deprecated, message: "This should be removed or gated by admin access to fix bad data")
     func create(req: Request) throws -> EventLoopFuture<Asset> {
         try req.content
             .decode(Asset.self)
             .save(on: req.db)
             .transform(to: Asset())
+    }
+    
+    /// Returns the actual file byptes from disk
+    /// - Parameter req: `Request` with `asssetID`
+    /// - Throws: if the ID is unavailable or file can’t be read
+    /// - Returns: Streaming ELF Response
+    func getOne(req: Request) throws -> EventLoopFuture<Response> {
+        return Asset.find(req.parameters.get("assetID"),
+                       on: req.db)
+            .flatMapThrowing { maybeAsset in
+                guard let asset = maybeAsset else {
+                    throw Abort(.notFound)
+                }
+                return req.fileio.streamFile(at: asset.filepath)
+            }
     }
 }

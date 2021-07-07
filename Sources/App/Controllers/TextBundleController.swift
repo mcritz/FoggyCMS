@@ -125,9 +125,9 @@ struct TextBundleController: RouteCollection {
     /// - Parameter req: `Request` with `Content-Type` header set to `textpack` or `textbundle`
     /// - Throws: for bad content
     /// - Returns: `EventLoopFuture<TextBundle>`
-    func upload(req: Request) throws -> EventLoopFuture<TextBundle> {
+    func upload(req: Request) throws -> EventLoopFuture<TextBundleModel> {
         let logger = Logger(label: "TextBundle.upload")
-        let resultPromise = req.eventLoop.makePromise(of: TextBundle.self)
+        let resultPromise = req.eventLoop.makePromise(of: TextBundleModel.self)
         let ext = try getExtension(req)
         let fileName = UUID().uuidString.appending(ext)
         
@@ -160,11 +160,13 @@ struct TextBundleController: RouteCollection {
                     }
                 case .error(let errz):
                     do {
+                        // Report failure, close and remove files
                         drainPromise.fail(errz)
                         try fHand.close()
                         try FileManager.default.removeItem(atPath: filePath)
                         logger.error("Failed to upload. \(filePath) \n Reason: \n \(errz.localizedDescription)")
                     } catch {
+                        // Last resort in case file cleanup fails
                         logger.error("Failed to upload. \n Reason: \n \(error.localizedDescription) \n File \(filePath) will need to be removed manually.")
                         debugPrint("catastrophic failure on \(errz)", error)
                     }
@@ -174,10 +176,52 @@ struct TextBundleController: RouteCollection {
                     do {
                         logger.debug(Logger.Message(stringLiteral: "Uploaded: \(filePath)"))
                         _ = try extractTextBundle(filePath, req: req).flatMapThrowing { bundle in
+                            // Close the file
                             try? fHand.close()
-                            resultPromise.succeed(bundle)
+                            
+                            // Exit if there are no assets
+                            guard let assetURLs = bundle.assetURLs else {
+                                return
+                            }
+                            
+                            // Mutate
+                            var mutatedBundle = bundle
+                            
+                            // Iterate over the assetURLs saving assets to database
+                            _ = try assetURLs.map { url -> EventLoopFuture<URL> in
+                                logger.debug("asset url:/n \(url.path)")
+                                // Fail if there’s an improperly formatted URL
+                                guard let asset = try? Asset(url) else {
+                                    throw Abort(.noContent)
+                                }
+                                // Save the Asset, returning its server URL
+                                // Example: "foo.jpg" becomes "[HOSTNAME]:[PORT]/assets/[UUID]"
+                                return asset.save(on: req.db)
+                                    .transform(to: asset)
+                                    .flatMapThrowing { asset -> URL in
+                                        try asset.makeURL(req)
+                                    }
+                            }.flatten(on: req.eventLoop)
+                            .whenComplete { assetURLsResult in
+                                switch assetURLsResult {
+                                case .success(let serverAssetURLs):
+                                    // We’ll get our serverURLs, so overwrite the inbound TextBundle
+                                    mutatedBundle.assetURLs = serverAssetURLs
+                                    // Create a server model for our TextBundle
+                                    let textBundleModel = TextBundleModel(with: mutatedBundle)
+                                    // Save on the DB, returning the saved Model to the client
+                                    textBundleModel.save(on: req.db)
+                                        .transform(to: textBundleModel)
+                                        .whenSuccess { savedTextBundleModel in
+                                                resultPromise.succeed(savedTextBundleModel)
+                                        }
+                                case .failure(let errz):
+                                    logger.notice("Error saving assets\n\(errz.localizedDescription)")
+                                }
+                            }
                         }
                     } catch {
+                        // Fallback failure of last resort
                         try? fHand.close()
                         resultPromise.fail(error)
                     }
